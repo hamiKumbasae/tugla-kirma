@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Tuğla Kırma</title>
+<meta name="description" content="Tarayıcıda oynanan tuğla kırma oyunu: Klasik mod ve MÖ 220'den 1923'e Tarih modu." />
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <main id="wrap">
+    <div id="hud">
+      <span>Skor: <strong id="score">0</strong></span>
+      <span id="level-label"></span>
+      <span id="progress-label"></span>
+    </div>
+    <canvas id="game" width="800" height="600"></canvas>
+    <div id="legend">
+      <span>Fare · dokunma · ←/→ · oyun kolu — Boşluk/tık topu atar — Esc duraklatır</span>
+      <span>W geniş raket · M çoklu top · S yavaşlat · + bonus puan</span>
+      <span id="gamepad-status"></span>
+    </div>
+  </main>
+
+  <div id="overlay">
+    <!-- Mode selection -->
+    <section id="menu-modes" class="panel">
+      <h1>Tuğla Kırma</h1>
+      <p class="subtitle">Bir mod seç</p>
+      <div class="mode-cards">
+        <button class="mode-card" data-mode="classic">
+          <span class="mode-title">Klasik</span>
+          <span class="mode-desc">Kolaydan zora 30 şekil bölümü</span>
+          <span class="mode-progress" data-progress="classic"></span>
+        </button>
+        <button class="mode-card" data-mode="history">
+          <span class="mode-title">Tarih</span>
+          <span class="mode-desc">MÖ 220'den 1923'e, tuğlalar olayın yılını yazar</span>
+          <span class="mode-progress" data-progress="history"></span>
+        </button>
+      </div>
+    </section>
+
+    <!-- Level list of the chosen mode -->
+    <section id="menu-levels" class="panel">
+      <div class="panel-head">
+        <button id="back-to-modes" class="ghost">← Modlar</button>
+        <h2 id="levels-title"></h2>
+        <button id="continue-btn">Devam Et</button>
+      </div>
+      <div id="chapter-list"></div>
+    </section>
+
+    <!-- Generic card: level intro, pause, level cleared, mode finished -->
+    <section id="card" class="panel">
+      <p id="card-kicker"></p>
+      <h1 id="card-title"></h1>
+      <p id="card-text"></p>
+      <div id="card-actions"></div>
+    </section>
+  </div>
+
+  <script src="js/audio.js"></script>
+  <script src="js/patterns.js"></script>
+  <script src="js/levels/classic.js"></script>
+  <script src="js/levels/history.js"></script>
+  <script src="js/game.js"></script>
+</body>
+</html>
