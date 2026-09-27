@@ -551,7 +551,7 @@ function levelCleared() {
   state = "menu";
   if (levelIndex >= mode.levels.length - 1) {
     const text = mode.id === "history"
-      ? "MÖ 220'den 1923'e bütün tarih bölümlerini bitirdin. Skor: " + score
+      ? "MÖ 220'den 1939'a bütün tarih bölümlerini bitirdin. Skor: " + score
       : "Bütün Klasik bölümleri bitirdin. Skor: " + score;
     showCard("Tebrikler", "Mod Tamamlandı!", text, [
       ["Bölüm Listesi", () => showLevelMenu(mode.id)],

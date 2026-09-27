@@ -7,7 +7,7 @@ Tarayıcıda çalışan, bağımlılıksız bir tuğla kırma (Breakout) oyunu. 
 ## Modlar
 
 - **Klasik:** Kolaydan zora sıralanmış 30 şekil bölümü (Başlangıç, Orta, Zor).
-- **Tarih:** MÖ 220'den 1923'e 36 bölümlük kronolojik kampanya. Tuğlalar olayın yılını yazar ve her bölümden önce olayla ilgili kısa bir not gösterilir. Bölümler beş çağa ayrılır: İlk Türk Devletleri, Selçuklular, Osmanlı (Kuruluş ve Yükseliş), Osmanlı (Zirve ve Değişim), Millî Mücadele ve Cumhuriyet.
+- **Tarih:** MÖ 220'den 1939'a 65 bölümlük kronolojik kampanya. Tuğlalar olayın yılını yazar ve her bölümden önce olayla ilgili kısa bir not gösterilir. Bölümler beş çağa ayrılır: İlk Türk Devletleri, Türk-İslam Devletleri ve Selçuklular, Osmanlı (Kuruluş ve Yükseliş), Osmanlı (Zirve ve Değişim), Meşrutiyet'ten Cumhuriyet'e.
 
 Her modda top hızı bölüm ilerledikçe artar, raket daralır. Tamamlanan bölümler tarayıcıda saklanır ve listede ✓ ile işaretlenir.
 
