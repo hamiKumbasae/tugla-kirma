@@ -62,7 +62,7 @@ const MODES = {
 function difficultyFor(index, total) {
   const t = total > 1 ? index / (total - 1) : 0;
   return {
-    ballSpeed: 4.6 + 2.0 * t,
+    ballSpeed: 7.0 + 2.5 * t, // px per 60 Hz step: ~420 → ~570 px/s
     paddleW: Math.round(110 - 22 * t),
   };
 }
@@ -96,7 +96,7 @@ function currentLevel() { return mode.levels[levelIndex]; }
 
 function resetPaddleAndBall() {
   const w = difficulty.paddleW;
-  paddle = { x: W / 2 - w / 2, y: H - 40, w, h: PADDLE_H, speed: 8, wideUntil: 0 };
+  paddle = { x: W / 2 - w / 2, y: H - 40, w, h: PADDLE_H, speed: 10, wideUntil: 0 };
   balls = [{ x: W / 2, y: paddle.y - BALL_R - 1, vx: 0, vy: 0, r: BALL_R, stuck: true }];
   particles = [];
   powerups = [];
