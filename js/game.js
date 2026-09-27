@@ -30,6 +30,22 @@ const POWERUP_TYPES = [
 ];
 const STEP_MS = 1000 / 60; // physics runs at a fixed 60 Hz regardless of screen refresh rate
 
+// Map levels (classic.js) draw bricks with one character per cell:
+// "#" normal · "3" stone, breaks on the 3rd hit · "I" iron, never breaks ·
+// "T" TNT, destroys its 8 neighbours · "K" key · "L" lock, unbreakable until every key is gone
+const MAP_BRICKS = {
+  "#": { kind: "normal" },
+  "3": { kind: "stone", hp: 3, points: 60 },
+  "I": { kind: "iron", points: 0 },
+  "T": { kind: "tnt", points: 30 },
+  "K": { kind: "key", points: 100 },
+  "L": { kind: "lock" },
+};
+const STONE_COLORS = ["#8a8176", "#a39a8e", "#bdb4a7"]; // index = hits left - 1
+const SLIDE_SPEED = 0.02;        // radians per step for sliding rows (~5 s per sweep)
+const STALL_STEPS = 60 * 8;      // no progress this long → nudge the ball out of a loop
+const MIN_VERTICAL = 0.3;        // |vy| never drops below this share of the ball's speed
+
 // ---- Modes: flatten chapters into one ordered level list per mode ----
 function buildMode(id, title, chapters, toLevel) {
   const levels = [];
@@ -44,7 +60,7 @@ const MODES = {
     ...def,
     id: def.name,
     chapter: chapter.title,
-    rows: def.rows || SHAPE_ROWS[def.pattern].length,
+    rows: def.map ? def.map.length : def.rows || SHAPE_ROWS[def.pattern].length,
     label: (i + 1) + ". " + def.name,
   })),
   history: buildMode("history", "Tarih", HISTORY_CHAPTERS, (def, chapter) => ({
@@ -86,7 +102,9 @@ function isCompleted(mode, level) { return progress[mode.id].includes(level.id);
 let mode = MODES.classic;
 let levelIndex = 0;
 let difficulty = difficultyFor(0, 1);
-let paddle, balls, bricks, particles, powerups, shards;
+let paddle, balls, bricks, particles, powerups, shards, flashes;
+let brickGrid = new Map(); // "row:col" → brick, for TNT neighbours
+let slideRows = [], slideStep = 0;
 let score = 0;
 let state = "menu"; // menu | playing | paused
 let shakeMagnitude = 0;
@@ -97,38 +115,94 @@ function currentLevel() { return mode.levels[levelIndex]; }
 function resetPaddleAndBall() {
   const w = difficulty.paddleW;
   paddle = { x: W / 2 - w / 2, y: H - 40, w, h: PADDLE_H, speed: 10, wideUntil: 0 };
-  balls = [{ x: W / 2, y: paddle.y - BALL_R - 1, vx: 0, vy: 0, r: BALL_R, stuck: true }];
+  balls = [{ x: W / 2, y: paddle.y - BALL_R - 1, vx: 0, vy: 0, r: BALL_R, stuck: true, stall: 0 }];
   particles = [];
   powerups = [];
   shards = [];
+  flashes = [];
   slowUntil = 0;
   currentSpeedMul = 1;
 }
 
+// Which map character (or "#") sits at row r, column c of the current level.
+function cellAt(def, r, c, cols) {
+  if (def.map) return def.map[r][c] === "." ? null : def.map[r][c];
+  if (def.pattern === "digits") return digitsPatternActive(def.digits, r, c) ? "#" : null;
+  return patternActive(def.pattern, r, c, def.rows, cols) ? "#" : null;
+}
+
+// Short crack polylines inside a brick, fixed per brick so they don't flicker.
+function makeCracks(r, c, w, h) {
+  let seed = (r * 73856093) ^ (c * 19349663);
+  const rand = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
+  const cracks = [];
+  for (let i = 0; i < 3; i++) {
+    let x = w * (0.2 + 0.6 * rand()), y = rand() < 0.5 ? 0 : h;
+    const path = [[x, y]];
+    for (let s = 0; s < 3; s++) {
+      x = Math.max(2, Math.min(w - 2, x + (rand() - 0.5) * w * 0.35));
+      y = y === 0 || y < h / 2 ? y + h / 3 : y - h / 3;
+      path.push([x, y]);
+    }
+    cracks.push(path);
+  }
+  return cracks;
+}
+
 function buildBricks() {
   bricks = [];
+  brickGrid = new Map();
+  slideRows = [];
+  slideStep = 0;
   const def = currentLevel();
   const isDigits = def.pattern === "digits";
-  const cols = isDigits ? digitsCols(def.digits) : BRICK_COLS;
+  const cols = def.map ? def.map[0].length : isDigits ? digitsCols(def.digits) : BRICK_COLS;
   const brickW = isDigits ? DIGIT_BRICK_W : BRICK_W;
   const left = (W - (cols * (brickW + BRICK_GAP) - BRICK_GAP)) / 2;
   const rowColors = def.rowColors || ROW_COLORS;
   for (let r = 0; r < def.rows; r++) {
     for (let c = 0; c < cols; c++) {
-      const active = isDigits ? digitsPatternActive(def.digits, r, c)
-        : patternActive(def.pattern, r, c, def.rows, cols);
-      if (!active) continue;
-      bricks.push({
-        x: left + c * (brickW + BRICK_GAP),
+      const ch = cellAt(def, r, c, cols);
+      if (!ch) continue;
+      const type = MAP_BRICKS[ch];
+      const x = left + c * (brickW + BRICK_GAP);
+      const brick = {
+        x, baseX: x,
         y: BRICK_TOP + r * (BRICK_H + BRICK_GAP),
         w: brickW, h: BRICK_H,
+        r, c,
+        kind: type.kind,
+        hp: type.hp || 1,
         color: rowColors[r % rowColors.length],
-        points: ROW_POINTS[r % ROW_POINTS.length],
+        points: type.points !== undefined ? type.points : ROW_POINTS[r % ROW_POINTS.length],
         alive: true,
-      });
+      };
+      if (brick.kind === "stone") brick.cracks = makeCracks(r, c, brickW, BRICK_H);
+      bricks.push(brick);
+      brickGrid.set(r + ":" + c, brick);
     }
   }
+
+  // Sliding rows sweep across all the free width on either side of their bricks.
+  (def.slide || []).forEach((row, i) => {
+    const rowBricks = bricks.filter(b => b.r === row);
+    const minX = Math.min(...rowBricks.map(b => b.baseX));
+    const maxX = Math.max(...rowBricks.map(b => b.baseX + b.w));
+    const lo = -(minX - 6), hi = W - 6 - maxX;
+    slideRows.push({ bricks: rowBricks, center: (lo + hi) / 2, amp: (hi - lo) / 2, dir: i % 2 ? -1 : 1 });
+  });
+  moveSlidingRows();
 }
+
+function moveSlidingRows() {
+  for (const s of slideRows) {
+    const offset = s.center + s.amp * Math.sin(slideStep * SLIDE_SPEED) * s.dir;
+    for (const b of s.bricks) b.x = b.baseX + offset;
+  }
+}
+
+function isBreakable(b) { return b.kind !== "iron" && b.kind !== "lock"; }
+function levelIsClear() { return bricks.every(b => !b.alive || b.kind === "iron"); }
 
 function loadLevel(index) {
   levelIndex = index;
@@ -151,13 +225,13 @@ function triggerShake(amount) {
   shakeMagnitude = Math.max(shakeMagnitude, amount);
 }
 
-function spawnParticles(x, y, color) {
-  for (let i = 0; i < 10; i++) {
+function spawnParticles(x, y, color, count = 10) {
+  for (let i = 0; i < count; i++) {
     particles.push({ x, y, vx: (Math.random() - 0.5) * 4, vy: (Math.random() - 0.5) * 4, life: 1, color });
   }
 }
 
-function spawnShards(brick) {
+function spawnShards(brick, color) {
   for (let row = 0; row < 2; row++) {
     for (let col = 0; col < 2; col++) {
       shards.push({
@@ -169,10 +243,88 @@ function spawnShards(brick) {
         vy: -3 - Math.random() * 2.5,
         rot: 0,
         vr: (Math.random() - 0.5) * 0.3,
-        color: brick.color,
+        color,
       });
     }
   }
+}
+
+function spawnFlash(x, y, color, maxR) {
+  flashes.push({ x, y, color, r: 4, maxR, life: 1 });
+}
+
+// ---- Brick hits ----
+// Returns true when the hit counted as progress (damage or destruction).
+function hitBrick(b) {
+  if (b.kind === "iron") {
+    beep(1400, 0.05, "triangle", 0.04);
+    spawnParticles(b.x + b.w / 2, b.y + b.h / 2, "#dfe6ee", 4);
+    return false;
+  }
+  if (b.kind === "lock") {
+    beep(260, 0.06, "square", 0.04);
+    return false;
+  }
+  if (b.kind === "stone" && b.hp > 1) {
+    b.hp--;
+    beep(330 + b.hp * 60, 0.06, "square", 0.05);
+    spawnParticles(b.x + b.w / 2, b.y + b.h / 2, STONE_COLORS[b.hp], 6);
+    triggerShake(1.5);
+    return true;
+  }
+  destroyBrick(b, false);
+  return true;
+}
+
+function destroyBrick(b, byExplosion) {
+  b.alive = false;
+  score += b.points;
+  updateHud();
+  const color = brickColor(b);
+  spawnParticles(b.x + b.w / 2, b.y + b.h / 2, color);
+  spawnShards(b, color);
+  if (!byExplosion) beep(600 + b.points * 4, 0.07, "square", 0.05);
+  triggerShake(2.5);
+
+  if (Math.random() < POWERUP_DROP_CHANCE * (byExplosion ? 0.5 : 1)) {
+    const pt = pickPowerupType();
+    powerups.push({ x: b.x + b.w / 2 - 13, y: b.y + b.h / 2 - 9, w: 26, h: 18, vy: 2.5, type: pt.type, color: pt.color, label: pt.label });
+  }
+
+  if (b.kind === "tnt") explode(b);
+  if (b.kind === "key" && !bricks.some(o => o.alive && o.kind === "key")) unlockAll();
+}
+
+function explode(b) {
+  beep(90, 0.35, "sawtooth", 0.08);
+  triggerShake(7);
+  spawnFlash(b.x + b.w / 2, b.y + b.h / 2, "#ffb347", 110);
+  for (let dr = -1; dr <= 1; dr++) {
+    for (let dc = -1; dc <= 1; dc++) {
+      const n = brickGrid.get((b.r + dr) + ":" + (b.c + dc));
+      if (n && n.alive && isBreakable(n)) destroyBrick(n, true); // TNT neighbours chain on
+    }
+  }
+}
+
+function unlockAll() {
+  beep(660, 0.12, "triangle", 0.07);
+  setTimeout(() => beep(990, 0.18, "triangle", 0.07), 110);
+  for (const b of bricks) {
+    if (!b.alive || b.kind !== "lock") continue;
+    b.kind = "normal";
+    b.points = ROW_POINTS[b.r % ROW_POINTS.length];
+    spawnFlash(b.x + b.w / 2, b.y + b.h / 2, "#e8b923", 40);
+  }
+}
+
+// Keep the ball from travelling almost horizontally (endless wall-to-wall bouncing).
+function enforceMinVertical(ball) {
+  const speed = Math.hypot(ball.vx, ball.vy);
+  const minVy = speed * MIN_VERTICAL;
+  if (Math.abs(ball.vy) >= minVy) return;
+  ball.vy = (ball.vy < 0 ? -1 : 1) * minVy;
+  ball.vx = (ball.vx < 0 ? -1 : 1) * Math.sqrt(speed * speed - minVy * minVy);
 }
 
 // ---- Power-ups ----
@@ -201,7 +353,7 @@ function applyPowerup(type) {
       if (balls.length >= MAX_BALLS) break;
       const speed = Math.hypot(source.vx, source.vy);
       const angle = Math.atan2(source.vy, source.vx) + delta;
-      balls.push({ x: source.x, y: source.y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, r: BALL_R, stuck: false });
+      balls.push({ x: source.x, y: source.y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, r: BALL_R, stuck: false, stall: 0 });
     }
   }
 }
@@ -241,6 +393,9 @@ function update() {
     currentSpeedMul = desiredMul;
   }
 
+  slideStep++;
+  moveSlidingRows();
+
   for (const ball of balls) {
     if (ball.stuck) {
       ball.x = paddle.x + paddle.w / 2;
@@ -265,6 +420,7 @@ function update() {
       ball.vx = Math.sin(angle) * speed;
       ball.vy = -Math.cos(angle) * speed;
       ball.y = paddle.y - ball.r - 1;
+      ball.stall = 0;
       beep(440, 0.06, "triangle", 0.06);
     }
 
@@ -272,25 +428,34 @@ function update() {
       if (!b.alive) continue;
       if (ball.x + ball.r > b.x && ball.x - ball.r < b.x + b.w &&
           ball.y + ball.r > b.y && ball.y - ball.r < b.y + b.h) {
-        b.alive = false;
-        score += b.points;
-        updateHud();
-        spawnParticles(b.x + b.w / 2, b.y + b.h / 2, b.color);
-        spawnShards(b);
-        beep(600 + b.points * 4, 0.07, "square", 0.05);
-        triggerShake(2.5);
-
-        if (Math.random() < POWERUP_DROP_CHANCE) {
-          const pt = pickPowerupType();
-          powerups.push({ x: b.x + b.w / 2 - 13, y: b.y + b.h / 2 - 9, w: 26, h: 18, vy: 2.5, type: pt.type, color: pt.color, label: pt.label });
-        }
-
-        // bounce off the side with the shallower overlap
+        // bounce off the side with the shallower overlap, and push the ball out of
+        // bricks that survive the hit (iron, locks, stone, sliding rows)
         const overlapX = Math.min(ball.x + ball.r - b.x, b.x + b.w - (ball.x - ball.r));
         const overlapY = Math.min(ball.y + ball.r - b.y, b.y + b.h - (ball.y - ball.r));
-        if (overlapX < overlapY) ball.vx *= -1; else ball.vy *= -1;
+        if (overlapX < overlapY) {
+          const fromLeft = ball.x < b.x + b.w / 2;
+          ball.vx = (fromLeft ? -1 : 1) * Math.abs(ball.vx);
+          ball.x = fromLeft ? b.x - ball.r : b.x + b.w + ball.r;
+        } else {
+          const fromAbove = ball.y < b.y + b.h / 2;
+          ball.vy = (fromAbove ? -1 : 1) * Math.abs(ball.vy);
+          ball.y = fromAbove ? b.y - ball.r : b.y + b.h + ball.r;
+        }
+        enforceMinVertical(ball);
+        if (hitBrick(b)) ball.stall = 0;
         break;
       }
+    }
+
+    // stuck in a loop between unbreakable bricks and walls → tilt the ball slightly
+    ball.stall = (ball.stall || 0) + 1;
+    if (ball.stall > STALL_STEPS) {
+      const speed = Math.hypot(ball.vx, ball.vy);
+      const angle = Math.atan2(ball.vy, ball.vx) + (Math.random() < 0.5 ? -1 : 1) * (0.2 + Math.random() * 0.2);
+      ball.vx = Math.cos(angle) * speed;
+      ball.vy = Math.sin(angle) * speed;
+      enforceMinVertical(ball);
+      ball.stall = 0;
     }
   }
 
@@ -303,7 +468,7 @@ function update() {
     resetPaddleAndBall();
   }
 
-  if (bricks.every(b => !b.alive)) {
+  if (levelIsClear()) {
     levelCleared();
     return;
   }
@@ -326,6 +491,9 @@ function update() {
 
   for (const s of shards) { s.vy += SHARD_GRAVITY; s.x += s.vx; s.y += s.vy; s.rot += s.vr; }
   shards = shards.filter(s => s.y < H + 40);
+
+  for (const f of flashes) { f.r += (f.maxR - f.r) * 0.2; f.life -= 0.05; }
+  flashes = flashes.filter(f => f.life > 0);
 }
 
 // ---- Draw ----
@@ -346,16 +514,75 @@ function drawBackground() {
   ctx.fillRect(0, 0, W, H);
 }
 
-function drawBrick(b) {
+function brickColor(b) {
+  if (b.kind === "stone") return STONE_COLORS[b.hp - 1];
+  if (b.kind === "iron") return "#8f9aa6";
+  if (b.kind === "tnt") return "#c0392b";
+  if (b.kind === "key") return "#e8b923";
+  if (b.kind === "lock") return "#5d4d8f";
+  return b.color;
+}
+
+function drawBrickBody(b, color) {
   const grad = ctx.createLinearGradient(b.x, b.y, b.x, b.y + b.h);
-  grad.addColorStop(0, shadeColor(b.color, 28));
-  grad.addColorStop(1, shadeColor(b.color, -22));
+  grad.addColorStop(0, shadeColor(color, 28));
+  grad.addColorStop(1, shadeColor(color, -22));
   ctx.fillStyle = grad;
   ctx.fillRect(b.x, b.y, b.w, b.h);
   ctx.fillStyle = "rgba(255,255,255,0.22)";
   ctx.fillRect(b.x, b.y, b.w, 2.5);
   ctx.fillStyle = "rgba(0,0,0,0.3)";
   ctx.fillRect(b.x, b.y + b.h - 2.5, b.w, 2.5);
+}
+
+function drawBrick(b) {
+  drawBrickBody(b, brickColor(b));
+  const cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+  ctx.save();
+  if (b.kind === "stone") {
+    // cracks: none at 3 hits left, one at 2, all three at 1
+    const shown = b.hp === 3 ? 0 : b.hp === 2 ? 1 : 3;
+    ctx.strokeStyle = "rgba(30,24,18,0.75)";
+    ctx.lineWidth = 1.4;
+    for (let i = 0; i < shown; i++) {
+      ctx.beginPath();
+      b.cracks[i].forEach(([px, py], j) => (j ? ctx.lineTo(b.x + px, b.y + py) : ctx.moveTo(b.x + px, b.y + py)));
+      ctx.stroke();
+    }
+    ctx.strokeStyle = "rgba(0,0,0,0.35)";
+    ctx.strokeRect(b.x + 0.5, b.y + 0.5, b.w - 1, b.h - 1);
+  } else if (b.kind === "iron") {
+    ctx.strokeStyle = "#3d4550";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(b.x + 1, b.y + 1, b.w - 2, b.h - 2);
+    ctx.fillStyle = "#4b5561"; // rivets
+    for (const [rx, ry] of [[5, 5], [b.w - 5, 5], [5, b.h - 5], [b.w - 5, b.h - 5]]) {
+      ctx.beginPath(); ctx.arc(b.x + rx, b.y + ry, 1.8, 0, Math.PI * 2); ctx.fill();
+    }
+  } else if (b.kind === "tnt") {
+    ctx.fillStyle = "#1a1a1a";
+    ctx.fillRect(b.x + 6, cy - 1.5, b.w - 12, 3);
+    ctx.fillStyle = "#fff4d6";
+    ctx.font = "bold 12px -apple-system, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("TNT", cx, cy + 1);
+  } else if (b.kind === "key") {
+    ctx.strokeStyle = "#5a4100";
+    ctx.fillStyle = "#5a4100";
+    ctx.lineWidth = 2.2;
+    ctx.beginPath(); ctx.arc(cx - 10, cy, 4.5, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillRect(cx - 5.5, cy - 1.1, 17, 2.2);
+    ctx.fillRect(cx + 6, cy, 2.2, 5);
+    ctx.fillRect(cx + 10, cy, 2.2, 4);
+  } else if (b.kind === "lock") {
+    ctx.strokeStyle = "#d9d0f5";
+    ctx.fillStyle = "#d9d0f5";
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(cx, cy - 2, 4.5, Math.PI, 0); ctx.stroke();
+    ctx.fillRect(cx - 6.5, cy - 2, 13, 9);
+  }
+  ctx.restore();
 }
 
 function draw() {
@@ -383,6 +610,16 @@ function draw() {
     ctx.fillRect(-s.w / 2, -s.h / 2, s.w, s.h);
     ctx.restore();
   }
+
+  for (const f of flashes) {
+    ctx.globalAlpha = Math.max(f.life, 0) * 0.8;
+    ctx.strokeStyle = f.color;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(f.x, f.y, f.r, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
 
   for (const p of powerups) {
     ctx.fillStyle = p.color;
@@ -534,7 +771,7 @@ function introduceLevel() {
   if (mode.id === "history") {
     showCard(def.chapter + " · " + def.year, def.name, def.note, [["Başla", play]]);
   } else {
-    showCard(def.chapter + " · Bölüm " + (levelIndex + 1) + " / " + mode.levels.length, def.name, "", [["Başla", play]]);
+    showCard(def.chapter + " · Bölüm " + (levelIndex + 1) + " / " + mode.levels.length, def.name, def.hint || "", [["Başla", play]]);
   }
 }
 
