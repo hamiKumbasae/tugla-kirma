@@ -71,8 +71,6 @@ const HISTORY_CHAPTERS = [
         note: "Orhan Bey'in oğlu Süleyman Paşa Gelibolu'daki Çimpe Kalesi'ne yerleşti; Osmanlı Rumeli'ye ayak bastı." },
       { year: "1361", digits: "1361", name: "Edirne'nin Fethi",
         note: "Edirne alındı; kısa süre sonra başkent olan şehir Balkanlar'daki ilerleyişin merkezi oldu." },
-      { year: "1364", digits: "1364", name: "Sırpsındığı Savaşı",
-        note: "Edirne'yi geri almak isteyen Haçlı ordusu Meriç kıyısında bozguna uğratıldı; Osmanlı'nın Haçlılara karşı ilk büyük savaşı." },
       { year: "1389", digits: "1389", name: "I. Kosova Savaşı",
         note: "I. Murad Balkan ittifakını yendi; savaş alanında şehit düşen tek Osmanlı padişahı oldu." },
       { year: "1396", digits: "1396", name: "Niğbolu Savaşı",
