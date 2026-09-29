@@ -1,0 +1,44 @@
+# Builds the Android test APK. Download it from the "Test APK" release
+# (or from this run's artifacts) and install it on the phone.
+name: Android test APK
+
+on:
+  push:
+    branches: [main, "claude/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+      # The runner ships the Android SDK; add the platform this project compiles against.
+      - run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" > /dev/null
+      - run: npm ci
+      - run: npm run sync
+      - run: ./gradlew assembleDebug --no-daemon
+        working-directory: android
+      - run: cp android/app/build/outputs/apk/debug/app-debug.apk tugla-kirma.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tugla-kirma-apk
+          path: tugla-kirma.apk
+      - name: Publish to the "Test APK" release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view test-apk >/dev/null 2>&1 || \
+            gh release create test-apk --prerelease --title "Test APK" --target "$GITHUB_SHA" \
+              --notes "Telefona kurulabilen reklamsız test sürümü. Her derlemede güncellenir."
+          gh release upload test-apk tugla-kirma.apk --clobber

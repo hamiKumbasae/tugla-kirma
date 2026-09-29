@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Tuğla Kırma</string>
+    <string name="title_activity_main">Tuğla Kırma</string>
+    <string name="package_name">io.github.hamikumbasae.tuglakirma</string>
+    <string name="custom_url_scheme">io.github.hamikumbasae.tuglakirma</string>
+</resources>

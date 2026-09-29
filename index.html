@@ -2,7 +2,7 @@
 <html lang="tr">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <title>Tuğla Kırma</title>
 <meta name="description" content="Tarayıcıda oynanan tuğla kırma oyunu: Klasik mod ve MÖ 220'den 1939'a Tarih modu." />
 <link rel="stylesheet" href="css/style.css" />
@@ -10,11 +10,14 @@
 <body>
   <main id="wrap">
     <div id="hud">
+      <button id="pause-btn" class="ghost" aria-label="Duraklat">❚❚</button>
       <span>Skor: <strong id="score">0</strong></span>
       <span id="level-label"></span>
       <span id="progress-label"></span>
     </div>
     <canvas id="game" width="800" height="600"></canvas>
+    <!-- Touch devices: drag here to move the paddle without covering the game, tap to launch -->
+    <div id="touch-strip" aria-hidden="true"><span>← sürükle · dokun: topu at →</span></div>
     <div id="legend">
       <span>Fare · dokunma · ←/→ · oyun kolu — Boşluk/tık topu atar — Esc duraklatır</span>
       <span>W geniş raket · M çoklu top · S yavaşlat · + bonus puan</span>

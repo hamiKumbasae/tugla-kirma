@@ -25,11 +25,20 @@ body {
   align-items: center;
   justify-content: center;
   min-height: 100vh;
+  min-height: 100dvh;
   padding: 12px;
+  padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right))
+           max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
+/* Fit the 4:3 play field to the screen's height as well as its width */
 #wrap {
-  width: min(800px, 100%);
+  width: min(800px, 100%, calc((100vh - 130px) * 4 / 3));
+  width: min(800px, 100%, calc((100dvh - 130px) * 4 / 3));
+  min-width: 280px;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -39,9 +48,11 @@ body {
   display: flex;
   justify-content: space-between;
   gap: 12px;
+  align-items: center;
   font-size: clamp(13px, 2.4vw, 18px);
 }
 #level-label { text-align: center; flex: 1; }
+#pause-btn { padding: 4px 12px; font-size: 14px; line-height: 1.2; }
 
 canvas {
   display: block;
@@ -51,6 +62,19 @@ canvas {
   background: #10142a;
   border: 2px solid var(--border);
   border-radius: 8px;
+  touch-action: none;
+}
+
+#touch-strip {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  height: 52px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  background: rgba(21, 26, 53, 0.6);
+  color: var(--muted);
+  font-size: 12px;
   touch-action: none;
 }
 
@@ -156,3 +180,43 @@ button.ghost:hover { background: var(--surface-hover); }
 .level-btn.done::before { content: "✓ "; color: var(--done); }
 
 #card-actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
+
+/* ---- Touch screens ---- */
+@media (pointer: coarse) {
+  #touch-strip { display: flex; }
+  #legend { display: none; }
+  #pause-btn { padding: 8px 16px; font-size: 16px; }
+  #wrap {
+    width: min(800px, 100%, calc((100vh - 110px) * 4 / 3));
+    width: min(800px, 100%, calc((100dvh - 110px) * 4 / 3));
+  }
+}
+
+/* Phone held sideways: HUD becomes a column beside the play field, drag strip below */
+@media (pointer: coarse) and (orientation: landscape) and (max-height: 600px) {
+  body { padding-top: max(6px, env(safe-area-inset-top)); padding-bottom: max(6px, env(safe-area-inset-bottom)); }
+  #wrap {
+    --strip: 48px;
+    --field-h: min(calc(100vh - var(--strip) - 22px), calc((100vw - 190px) * 3 / 4));
+    --field-h: min(calc(100dvh - var(--strip) - 22px), calc((100vw - 190px) * 3 / 4));
+    width: auto;
+    display: grid;
+    grid-template-columns: 112px auto;
+    grid-template-areas: "hud game" "strip strip";
+    gap: 6px 10px;
+  }
+  #hud {
+    grid-area: hud;
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-start;
+    gap: 10px;
+    font-size: 13px;
+  }
+  #level-label { flex: 0; text-align: left; }
+  canvas { grid-area: game; height: var(--field-h); width: auto; }
+  #touch-strip { grid-area: strip; height: var(--strip); }
+  #overlay { padding: 16px; }
+  .panel h1 { font-size: 26px; }
+  .mode-card { padding: 14px; }
+}
