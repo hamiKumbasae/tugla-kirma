@@ -17,7 +17,9 @@ Her modda top hızı bölüm ilerledikçe artar, raket daralır. Tamamlanan böl
 |---|---|---|---|
 | Raketi hareket ettir | ← → | Fareyi / parmağını kaydır | Sol çubuk, yön tuşları |
 | Topu at, menüde onayla | Boşluk / Enter | Tıkla / dokun | A (✕) |
-| Duraklat | Esc / P | — | Start |
+| Duraklat | Esc / P | ❚❚ düğmesi | Start |
+
+Dokunmatik ekranda oyun alanının altındaki şeritte parmağını kaydırarak raketi oynatırsın; parmak topu örtmez. Şeride ya da oyun alanına kısa dokunuş topu atar, sürükleyip bırakmak atmaz. Uygulamadan çıkınca veya sekme gizlenince oyun kendiliğinden duraklar, güçlendirme süreleri de durur.
 
 **Güçlendirmeler:** W geniş raket · M çoklu top · S yavaşlatma · + bonus puan
 
@@ -44,7 +46,25 @@ js/patterns.js        Tuğla desenleri ve yıl rakamlarının piksel fontu
 js/levels/classic.js  Klasik mod bölümleri (şekil desenleri ve metin haritaları)
 js/levels/history.js  Tarih modu bölümleri ve olay notları
 js/game.js            Oyun motoru, girişler, menü akışı
+capacitor.config.json Android uygulamasının kimliği ve ayarları
+android/              Capacitor'ın ürettiği Android projesi
+scripts/copy-web.mjs  Oyun dosyalarını www/ klasörüne kopyalar
 ```
+
+## Android (Capacitor)
+
+Oyun, kodu değiştirilmeden [Capacitor](https://capacitorjs.com) ile Android uygulaması olarak paketlenir. Oyun dosyaları uygulamanın içindedir, internet gerekmez; ilerleme uygulama verisinde saklanır ve uygulama güncellenince korunur. Uygulama yatay ve tam ekran açılır.
+
+Gerekenler: Node.js 22+, Android Studio (Android SDK ve JDK 21).
+
+```
+npm install
+npm run sync      # web dosyalarını www/ klasörüne kopyalar ve android/ projesine aktarır
+npm run open      # Android Studio'da açar (Run ile telefona kurulur)
+npm run apk       # ya da doğrudan test APK'sı: android/app/build/outputs/apk/debug/app-debug.apk
+```
+
+`index.html`, `css/` veya `js/` değiştiğinde `npm run sync` yeniden çalıştırılmalı. `www/` üretilen bir klasördür, depoya eklenmez.
 
 Yeni bir bölüm eklemek için ilgili `js/levels/*.js` dosyasına bir kayıt eklemen yeterli. Klasik bölümler 10 sütunluk metin haritasıyla çizilir:
 

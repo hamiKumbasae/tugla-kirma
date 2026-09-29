@@ -109,6 +109,8 @@ let score = 0;
 let state = "menu"; // menu | playing | paused
 let shakeMagnitude = 0;
 let slowUntil = 0, currentSpeedMul = 1;
+// Game clock in ms that only advances while playing, so power-up timers freeze on pause.
+let gameTime = 0;
 
 function currentLevel() { return mode.levels[levelIndex]; }
 
@@ -340,9 +342,9 @@ function pickPowerupType() {
 
 function applyPowerup(type) {
   if (type === "wide") {
-    paddle.wideUntil = Date.now() + 10000;
+    paddle.wideUntil = gameTime + 10000;
   } else if (type === "slow") {
-    slowUntil = Date.now() + 8000;
+    slowUntil = gameTime + 8000;
   } else if (type === "bonus") {
     score += 100;
     updateHud();
@@ -375,7 +377,8 @@ function update() {
   pollGamepadButtons();
 
   if (state !== "playing") return;
-  const now = Date.now();
+  gameTime += STEP_MS;
+  const now = gameTime;
 
   paddle.w = now < paddle.wideUntil ? Math.round(difficulty.paddleW * 1.5) : difficulty.paddleW;
 
@@ -633,7 +636,7 @@ function draw() {
     ctx.fillText(p.label, p.x + p.w / 2, p.y + p.h / 2 + 1);
   }
 
-  const paddleBase = Date.now() < paddle.wideUntil ? "#8fb4e0" : "#c7cdd6";
+  const paddleBase = gameTime < paddle.wideUntil ? "#8fb4e0" : "#c7cdd6";
   const paddleGrad = ctx.createLinearGradient(paddle.x, paddle.y, paddle.x, paddle.y + paddle.h);
   paddleGrad.addColorStop(0, shadeColor(paddleBase, 35));
   paddleGrad.addColorStop(1, shadeColor(paddleBase, -30));
@@ -664,7 +667,7 @@ function draw() {
     ctx.font = "14px -apple-system, sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "alphabetic";
-    ctx.fillText("Topu atmak için tıkla ya da boşluğa bas", W / 2, paddle.y - 30);
+    ctx.fillText(isTouch ? "Topu atmak için dokun" : "Topu atmak için tıkla ya da boşluğa bas", W / 2, paddle.y - 30);
   }
 
   ctx.restore();
@@ -814,22 +817,79 @@ document.querySelectorAll(".mode-card").forEach((btn) => {
   btn.addEventListener("click", () => showLevelMenu(btn.dataset.mode));
 });
 document.getElementById("back-to-modes").addEventListener("click", showModeMenu);
+document.getElementById("pause-btn").addEventListener("click", (e) => {
+  e.currentTarget.blur(); // keep Space as "fire" instead of re-clicking this button
+  openPauseMenu();
+});
+
+// Leaving the app (home button, notification, screen lock, app switch) pauses the game;
+// the player comes back to the pause card and picks "Devam Et".
+document.addEventListener("visibilitychange", () => { if (document.hidden) openPauseMenu(); });
+window.addEventListener("pagehide", openPauseMenu);
+document.addEventListener("pause", openPauseMenu); // Capacitor/Cordova app lifecycle event
 
 // ---- Input: mouse, touch, keyboard and gamepad all work together ----
+const isTouch = window.matchMedia("(pointer: coarse)").matches;
+const TAP_MAX_MOVE = 12;   // CSS px a finger may drift and still count as a tap
+const TAP_MAX_MS = 300;
+
+function canvasScale() { return W / canvas.getBoundingClientRect().width; }
 function setPaddleFromClientX(clientX) {
   const rect = canvas.getBoundingClientRect();
   const x = (clientX - rect.left) * (W / rect.width);
   paddle.x = Math.max(0, Math.min(W - paddle.w, x - paddle.w / 2));
 }
-canvas.addEventListener("mousemove", (e) => {
-  if (state === "playing") setPaddleFromClientX(e.clientX);
-});
-canvas.addEventListener("touchmove", (e) => {
-  if (state === "playing" && e.touches.length > 0) setPaddleFromClientX(e.touches[0].clientX);
+
+// Mouse: the paddle follows the pointer over the canvas, a click launches.
+// Touch on the canvas: the paddle jumps under the finger. Touch on the strip below:
+// the paddle moves with the finger's drag (relative), so the finger never hides the game.
+// For touch, only a short, still tap launches the ball; lifting after a drag does not.
+let touchDrag = null; // { id, startX, lastX, startTime, moved, relative }
+function onPointerDown(e, relative) {
+  if (e.pointerType === "mouse") return;
   e.preventDefault();
-}, { passive: false });
-canvas.addEventListener("click", () => { if (state === "playing") launchBall(); });
-canvas.addEventListener("touchend", () => { if (state === "playing") launchBall(); });
+  touchDrag = { id: e.pointerId, startX: e.clientX, lastX: e.clientX, startTime: performance.now(), moved: false, relative };
+  if (!relative && state === "playing") setPaddleFromClientX(e.clientX);
+}
+function onPointerMove(e, relative) {
+  if (e.pointerType === "mouse") {
+    if (!relative && state === "playing") setPaddleFromClientX(e.clientX);
+    return;
+  }
+  if (!touchDrag || touchDrag.id !== e.pointerId) return;
+  e.preventDefault();
+  if (Math.abs(e.clientX - touchDrag.startX) > TAP_MAX_MOVE) touchDrag.moved = true;
+  if (state === "playing") {
+    if (touchDrag.relative) {
+      paddle.x = Math.max(0, Math.min(W - paddle.w, paddle.x + (e.clientX - touchDrag.lastX) * canvasScale()));
+    } else {
+      setPaddleFromClientX(e.clientX);
+    }
+  }
+  touchDrag.lastX = e.clientX;
+}
+function onPointerUp(e) {
+  if (e.pointerType === "mouse") {
+    if (e.button === 0 && state === "playing") launchBall();
+    return;
+  }
+  if (!touchDrag || touchDrag.id !== e.pointerId) return;
+  const tap = !touchDrag.moved && performance.now() - touchDrag.startTime < TAP_MAX_MS;
+  touchDrag = null;
+  if (tap && state === "playing") launchBall();
+}
+function onPointerCancel(e) { if (touchDrag && touchDrag.id === e.pointerId) touchDrag = null; }
+
+const touchStrip = document.getElementById("touch-strip");
+for (const [el, relative] of [[canvas, false], [touchStrip, true]]) {
+  el.addEventListener("pointerdown", (e) => onPointerDown(e, relative));
+  el.addEventListener("pointermove", (e) => onPointerMove(e, relative));
+  el.addEventListener("pointerup", onPointerUp);
+  el.addEventListener("pointercancel", onPointerCancel);
+}
+touchStrip.addEventListener("pointerdown", (e) => {
+  if (e.pointerType !== "mouse") touchStrip.setPointerCapture(e.pointerId); // keep dragging past its edges
+});
 
 function confirmOrLaunch() {
   if (state === "playing") launchBall();
